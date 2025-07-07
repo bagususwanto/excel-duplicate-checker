@@ -1,0 +1,4 @@
+venv
+dist
+build
+excel_duplicate_checker.spec

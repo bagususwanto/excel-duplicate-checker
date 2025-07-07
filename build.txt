@@ -1,0 +1,1 @@
+pyinstaller --windowed --onefile excel_duplicate_checker.py
