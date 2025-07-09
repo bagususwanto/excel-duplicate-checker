@@ -162,6 +162,28 @@ class ExcelDuplicateChecker:
         else:
             self.update_status("Tidak ada file yang dipilih.", "warning")
     
+    def create_status_file(self, df, duplicate_mask, output_file):
+        """Membuat file dengan kolom status duplikat"""
+        try:
+            # Buat copy dari dataframe asli
+            df_with_status = df.copy()
+            
+            # Tambahkan kolom status
+            df_with_status['Status_Duplikat'] = duplicate_mask.map({True: 'DUPLIKAT', False: 'UNIK'})
+            
+            # Pindahkan kolom status ke posisi pertama
+            cols = df_with_status.columns.tolist()
+            cols = ['Status_Duplikat'] + [col for col in cols if col != 'Status_Duplikat']
+            df_with_status = df_with_status[cols]
+            
+            # Save file
+            df_with_status.to_excel(output_file, index=False)
+            return True
+            
+        except Exception as e:
+            print(f"Error creating status file: {e}")
+            return False
+    
     def proses_duplikat(self):
         """Memproses file untuk mencari duplikat"""
         if not self.current_file:
@@ -206,24 +228,37 @@ class ExcelDuplicateChecker:
             # Find duplicates
             column_display = ", ".join(column_names)
             self.update_status(f"Mencari duplikat berdasarkan kolom: {column_display}...", "info")
-            duplikat = df[df.duplicated(subset=column_names, keep=False)]
+            
+            # Get duplicate mask and indices
+            duplicate_mask = df.duplicated(subset=column_names, keep=False)
+            duplikat = df[duplicate_mask]
+            duplicate_indices = df.index[duplicate_mask].tolist()
             
             if not duplikat.empty:
-                # Save duplicates
+                # Prepare file paths
                 file_path = Path(self.current_file)
-                base_name = os.path.splitext(self.current_file)[0]
                 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                output_file = file_path.parent / f"{file_path.stem}_duplikat_{timestamp}.xlsx"
-                output_file = str(output_file)
-                duplikat.to_excel(output_file, index=False)
                 
-                # Simpan file bersih dari duplikat
+                # 1. Save duplicates only
+                output_file = file_path.parent / f"{file_path.stem}_duplikat_{timestamp}.xlsx"
+                duplikat.to_excel(str(output_file), index=False)
+                
+                # 2. Save clean file (without duplicates)
                 cleaned_df = df.drop_duplicates(subset=column_names, keep=False)
                 clean_output_file = file_path.parent / f"{file_path.stem}_cleaned_{timestamp}.xlsx"
-                clean_output_file = str(clean_output_file)
-                cleaned_df.to_excel(clean_output_file, index=False)
+                cleaned_df.to_excel(str(clean_output_file), index=False)
+                
+                # 3. Create status file (original with status column)
+                status_output_file = file_path.parent / f"{file_path.stem}_with_status_{timestamp}.xlsx"
+                self.update_status("Membuat file dengan kolom status duplikat...", "info")
+                
+                status_success = self.create_status_file(
+                    df, 
+                    duplicate_mask, 
+                    str(status_output_file)
+                )
 
-                # Success message dengan path lengkap
+                # Success message
                 jumlah_duplikat = len(duplikat)
                 jumlah_unik = len(duplikat.drop_duplicates(subset=column_names))
                 
@@ -232,20 +267,28 @@ class ExcelDuplicateChecker:
                 success_msg += f"• Jumlah set unik yang duplikat: {jumlah_unik}\n"
                 success_msg += f"• Kolom yang dicek: {column_display}\n"
                 success_msg += f"• File duplikat disimpan: {output_file}\n"
-                success_msg += f"• File bersih disimpan: {clean_output_file}"
+                success_msg += f"• File bersih disimpan: {clean_output_file}\n"
+                if status_success:
+                    success_msg += f"• File dengan status duplikat: {status_output_file}"
+                else:
+                    success_msg += f"• ⚠️ Gagal membuat file status"
                 
                 self.update_status(success_msg, "success")
                 
-                # Show completion dialog dengan path lengkap
-                if messagebox.askyesno("Proses Selesai", 
-                                     f"Duplikat berhasil ditemukan!\n\n"
-                                     f"Total baris duplikat: {jumlah_duplikat}\n"
-                                     f"Kolom yang dicek: {column_display}\n\n"
-                                     f"File duplikat disimpan di:\n{output_file}\n\n"
-                                     f"File bersih disimpan di:\n{clean_output_file}\n\n"
-                                     f"Apakah Anda ingin membuka folder output?"):
+                # Show completion dialog
+                dialog_msg = f"Duplikat berhasil ditemukan!\n\n"
+                dialog_msg += f"Total baris duplikat: {jumlah_duplikat}\n"
+                dialog_msg += f"Kolom yang dicek: {column_display}\n\n"
+                dialog_msg += f"File yang dibuat:\n"
+                dialog_msg += f"1. Duplikat saja: {output_file.name}\n"
+                dialog_msg += f"2. Data bersih: {clean_output_file.name}\n"
+                if status_success:
+                    dialog_msg += f"3. Dengan status duplikat: {status_output_file.name}\n"
+                dialog_msg += f"\nApakah Anda ingin membuka folder output?"
+                
+                if messagebox.askyesno("Proses Selesai", dialog_msg):
                     try:
-                        # Buka folder output
+                        # Open output folder
                         output_folder = str(file_path.parent)
                         if platform.system() == "Windows":
                             os.startfile(output_folder)
